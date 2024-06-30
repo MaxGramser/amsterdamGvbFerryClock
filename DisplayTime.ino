@@ -1,4 +1,10 @@
-void displayTime(String timeStr) {
+void displayTime(String timeStr, String label, const int place) {
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(30, 30);
+    tft.setTextSize(3);
+    tft.println(label);
 
   int textSize = 7;
   int charWidth = 6 * textSize; // Assuming each character is 6 pixels wide and text size is 7

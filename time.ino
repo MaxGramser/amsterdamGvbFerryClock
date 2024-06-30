@@ -1,3 +1,4 @@
+//// function formatTime is for going from datetime to unix timestamp
 
 // Function to check if the given year is a leap year
 bool isLeapYear(int year) {

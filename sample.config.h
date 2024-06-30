@@ -4,5 +4,6 @@
 
 #define WIFI_SSID "ssid"
 #define WIFI_PASSWORD "password"
+const String GVB_LINE = "GVB_902_1";
 
 #endif

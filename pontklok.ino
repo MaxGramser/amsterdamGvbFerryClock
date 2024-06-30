@@ -7,7 +7,7 @@
 #include <TimeLib.h>
 #include <algorithm>
 #include <Wire.h>
-#include <TAMC_GT911.h>
+#include "string"
 #include "config.h"
 
 #define TOUCH_SDA  21
@@ -18,12 +18,9 @@
 #define TOUCH_HEIGHT 320
 
 // URL
-const char* url = "http://v0.ovapi.nl/line/GVB_902_1"; // jouw JSON URL
-
-HTTPClient http;
+const String url = "http://v0.ovapi.nl/line/" + GVB_LINE;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
-TAMC_GT911 tp = TAMC_GT911(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
 
 // Initialize the display
 TFT_eSPI tft = TFT_eSPI();  // Invoke custom library
@@ -38,9 +35,13 @@ unsigned long previousDiffrence = 0;
 String jsonString = "";
 String previousTimeStr = "";
 
-const int MAX_DEPTIMES = 200;
+const int MAX_DEPTIMES = 300;
 int NUM_DEPTIMES = 0;
 unsigned long departureTimes[MAX_DEPTIMES];
+
+// updatescreen
+unsigned long previousMillis = 0;
+const long interval = 50;
 
 void setup() {
     Serial.begin(115200);
@@ -50,12 +51,9 @@ void setup() {
         delay(1000);
         Serial.println("Verbinding maken met WiFi...");
     }
-
-    timeClient.begin();
+    
     Serial.println("WiFi verbonden.");
-
-        tp.begin();
-    tp.setRotation(ROTATION_NORMAL);
+    timeClient.begin();
 
     // Initialize the display
     tft.init();
@@ -63,13 +61,6 @@ void setup() {
         
     // Clear the screen initially
     tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextSize(2);
-    
-    // Display "pont" label
-    tft.setCursor(30, 30);
-    tft.setTextSize(3);
-    tft.println("IJplein Pont");
 
     // Stel een timer in om elke minuut de JSON te updaten
     jsonUpdateTimer = xTimerCreate("JSONUpdateTimer", pdMS_TO_TICKS(60000), pdTRUE, (void *)0, JSONTimerCallback);
@@ -80,37 +71,22 @@ void setup() {
         Serial.println("Fout bij het maken van JSON update timer!");
     }
 
-    displayTime("00:00:00");
+    displayTime("00:00:00", "IJplein Pont", 1);
     updateJSON();
-
-    // Stel een timer in om elke seconde af te tellen tot het volgende vertrek
-    countdownTimer = xTimerCreate("CountdownTimer", pdMS_TO_TICKS(50), pdTRUE, (void *)0, CountdownTimerCallback);
-    if (countdownTimer != NULL) {
-        xTimerStart(countdownTimer, 0);
-        Serial.println("Timer gestart voor secondenteller.");
-    } else {
-        Serial.println("Fout bij het maken van countdown timer!");
-    }
 }
 
 void loop() {
     // Jouw code hier
     timeClient.update();
-
-    tp.read();
-    if (tp.isTouched){
-      for (int i=0; i<tp.touches; i++){
-        Serial.print("Touch ");Serial.print(i+1);Serial.print(": ");;
-        Serial.print("  x: ");Serial.print(tp.points[i].x);
-        Serial.print("  y: ");Serial.print(tp.points[i].y);
-        Serial.print("  size: ");Serial.println(tp.points[i].size);
-        Serial.println(' ');
+    
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      
+      if(jsonString != ""){
+          parseJSON(jsonString);
       }
     }
-      
-      // Add your code to handle the touch here
-      
-      delay(100); // Simple debounce delay
 }
 
 void JSONTimerCallback(TimerHandle_t xTimer) {
@@ -118,7 +94,9 @@ void JSONTimerCallback(TimerHandle_t xTimer) {
 }
 
 void updateJSON() {
-    http.begin(url);
+    HTTPClient http;
+    Serial.println("Updating JSON");
+    http.begin(String(url.c_str()));
     int httpResponseCode = http.GET();
     if (httpResponseCode > 0) {
         jsonString = http.getString();
@@ -127,6 +105,7 @@ void updateJSON() {
         Serial.println(httpResponseCode);
     }
     http.end();
+    Serial.println("JSON updated");
 }
 
 void parseJSON(String jsonString) {
@@ -139,23 +118,15 @@ void parseJSON(String jsonString) {
         return;
     }
 
-    JsonObject actuals = doc["GVB_902_1"]["Actuals"]; // Pak het JsonObject 'Actuals'
+    JsonObject actuals = doc[GVB_LINE]["Actuals"]; // Pak het JsonObject 'Actuals'
     clearDepartureTimes();
 
     for (JsonPair item : actuals) {
         const char* departureTime = item.value()["TargetDepartureTime"]; // Haal 'TargetDepartureTime' op
-
         addDepartureTime(departureTime);
         std::sort(departureTimes, departureTimes + NUM_DEPTIMES);
     }
-
-    printStrings();
-}
-
-void CountdownTimerCallback(TimerHandle_t xTimer) {
-    if(jsonString != ""){
-        parseJSON(jsonString);
-    }
+    showFerryDepartureTime();
 }
 
 void addDepartureTime(const char* time) {
@@ -172,7 +143,7 @@ void clearDepartureTimes() {
   NUM_DEPTIMES = 0; // Zet het aantal strings terug naar nul
 }
 
-void printStrings() {
+void showFerryDepartureTime() {
   if(NUM_DEPTIMES > 0){
     currentTime = timeClient.getEpochTime() + 7200;
     for(long depTime : departureTimes){
@@ -180,23 +151,10 @@ void printStrings() {
         long diffrence = depTime - currentTime;
         if(previousDiffrence != diffrence){
           previousDiffrence = diffrence;
-          Serial.println(formatTime(diffrence));
-          displayTime(formatTime(diffrence));
+          displayTime(formatTime(diffrence), "IJplein Pont", 1);
         }
         return;
       }
     }
   }
-}
-
-void sortDepartureTimes() {
-    for (int i = 1; i < NUM_DEPTIMES; i++) {
-        unsigned long key = departureTimes[i];
-        int j = i - 1;
-        while (j >= 0 && departureTimes[j] > key) {
-            departureTimes[j + 1] = departureTimes[j];
-            j = j - 1;
-        }
-        departureTimes[j + 1] = key;
-    }
 }
