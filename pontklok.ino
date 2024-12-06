@@ -1,4 +1,3 @@
-// pontklok.ino
 #include <WiFiManager.h>
 #include <WiFi.h>
 #include <NTPClient.h>
@@ -22,11 +21,10 @@ NTPClient timeClient(ntpUDP);
 
 TFT_eSPI tft = TFT_eSPI();
 
-// Timers
-TimerHandle_t jsonUpdateTimer;
-
 unsigned long currentTime = 0;
 unsigned long previousDifference = 0;
+unsigned long lastJsonUpdate = 0;
+const unsigned long JSON_UPDATE_INTERVAL = 60000; // Update every minute
 
 String jsonString = "";
 String previousCountdownStr = "";
@@ -41,7 +39,7 @@ unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50;
 
 unsigned long previousMillis = 0;
-const long interval = 1000; // Update every second
+const long interval = 1000; // Update display every second
 
 WiFiManagerParameter custom_gvb_line("gvb_line", "GVB Line (e.g., GVB_902_1)", DEFAULT_GVB_LINE, 40);
 WiFiManagerParameter custom_city("city", "City (e.g., Amsterdam)", DEFAULT_CITY, 40);
@@ -50,17 +48,14 @@ String currentDepartureStation = "";
 String currentDestinationName = "";
 String currentTransportType = "";
 
-// UI Positions & Sizes (Apple-inspired minimal UI)
+// UI Positions & Sizes
 int headerStationY = 50;
 int headerTransportY = 80;
 int dividerY = 100;
-
-// Countdown and next line positions
-int countdownY = 140; 
+int countdownY = 140;
 int textSizeCountdown = 8;
-
 int textSizeNext = 2;
-int nextLineY = 230; // Will center horizontally
+int nextLineY = 230;
 
 void saveConfigCallback() {
     config.gvb_line = custom_gvb_line.getValue();
@@ -105,12 +100,7 @@ void checkResetButton() {
     lastButtonState = reading;
 }
 
-void JSONTimerCallback(TimerHandle_t xTimer) {
-    updateJSON();
-}
-
 void updateJSON() {
-    // Update public transport data
     HTTPClient http;
     String url = "http://v0.ovapi.nl/line/" + config.gvb_line;
     Serial.println("Updating JSON from: " + url);
@@ -118,12 +108,13 @@ void updateJSON() {
     int httpResponseCode = http.GET();
     if (httpResponseCode > 0) {
         jsonString = http.getString();
+        Serial.println("JSON updated successfully");
+        parseJSON(jsonString);
     } else {
         Serial.print("Error fetching JSON. Error code: ");
         Serial.println(httpResponseCode);
     }
     http.end();
-    Serial.println("JSON updated");
 }
 
 bool isLeapYear(int year) {
@@ -179,7 +170,6 @@ void addDepartureTime(const char* time) {
     }
 }
 
-// Generic line update function
 void updateLine(String oldStr, String newStr, int x, int y, int textSize) {
     tft.setTextSize(textSize);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -207,7 +197,6 @@ void updateLine(String oldStr, String newStr, int x, int y, int textSize) {
     }
 }
 
-// Centered line update function
 void updateCenteredLine(String oldStr, String newStr, int centerY, int textSize) {
     tft.setTextSize(textSize);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -216,7 +205,6 @@ void updateCenteredLine(String oldStr, String newStr, int centerY, int textSize)
     int newWidth = newStr.length() * charWidth;
     int x = (tft.width() - newWidth) / 2;
 
-    // Overwrite old characters if needed
     int oldLen = oldStr.length();
     int newLen = newStr.length();
     int maxLen = (oldLen > newLen) ? oldLen : newLen;
@@ -227,7 +215,6 @@ void updateCenteredLine(String oldStr, String newStr, int centerY, int textSize)
 
         tft.setCursor(x + i*charWidth, centerY);
         if (newChar == '\0') {
-            // Clear old char
             if (oldChar != '\0') {
                 tft.print(' ');
             }
@@ -237,8 +224,6 @@ void updateCenteredLine(String oldStr, String newStr, int centerY, int textSize)
             }
         }
     }
-    // Update reference string
-    oldStr = newStr;
 }
 
 void displayCountdown(long difference) {
@@ -249,8 +234,6 @@ void displayCountdown(long difference) {
         newStr = formatTime(difference);
     }
 
-    // Center the countdown horizontally
-    // Calculate width
     int textSize = textSizeCountdown;
     int charWidth = 6 * textSize;
     int newWidth = newStr.length() * charWidth;
@@ -262,7 +245,6 @@ void displayCountdown(long difference) {
 
 void displayNextDeparture(unsigned long currentTime) {
     String newStr;
-    // Find first future departure
     int firstFutureIndex = -1;
     for (int i = 0; i < NUM_DEPTIMES; i++) {
         if (departureTimes[i] > currentTime) {
@@ -279,11 +261,10 @@ void displayNextDeparture(unsigned long currentTime) {
         if (diff <= 0) {
             newStr = "--:--:--";
         } else {
-            newStr = "" + formatTime(diff);
+            newStr = formatTime(diff);
         }
     }
 
-    // Center the "Next:" line as well
     int textSize = textSizeNext;
     int charWidth = 6 * textSize;
     int newWidth = newStr.length() * charWidth;
@@ -295,7 +276,6 @@ void displayNextDeparture(unsigned long currentTime) {
 
 void displayHeader() {
     tft.fillScreen(TFT_BLACK);
-
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
     // Station -> Destination
@@ -328,7 +308,7 @@ void showFerryDepartureTime() {
 }
 
 void parseJSON(String jsonString) {
-    StaticJsonDocument<8192> doc; 
+    StaticJsonDocument<8192> doc;
     DeserializationError error = deserializeJson(doc, jsonString);
 
     if (error) {
@@ -344,18 +324,29 @@ void parseJSON(String jsonString) {
     JsonObject actuals = doc[config.gvb_line]["Actuals"];
     clearDepartureTimes();
 
-    currentDepartureStation = "";
+    // First loop: just get the departure station from the first actual
     for (JsonPair item : actuals) {
         currentDepartureStation = item.value()["TimingPointName"].as<String>();
         break;
     }
 
+    // Second loop: add all departure times
     for (JsonPair item : actuals) {
         const char* departureTime = item.value()["TargetDepartureTime"];
-        addDepartureTime(departureTime);
+        if (departureTime && strlen(departureTime) > 0) {
+            addDepartureTime(departureTime);
+        }
     }
 
-    std::sort(departureTimes, departureTimes + NUM_DEPTIMES);
+    if (NUM_DEPTIMES > 0) {
+        std::sort(departureTimes, departureTimes + NUM_DEPTIMES);
+        Serial.println("Parsed departure times:");
+        for (int i = 0; i < NUM_DEPTIMES; i++) {
+            Serial.println(departureTimes[i]);
+        }
+    } else {
+        Serial.println("No departure times found in JSON");
+    }
 
     showFerryDepartureTime();
 }
@@ -395,83 +386,71 @@ void setup() {
 
     tft.fillScreen(TFT_BLACK);
     tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setCursor(10, 10);
     tft.println("Loading... Please wait");
 
     timeClient.begin();
-
-    jsonUpdateTimer = xTimerCreate("JSONUpdateTimer", pdMS_TO_TICKS(60000), pdTRUE, (void *)0, JSONTimerCallback);
-    if (jsonUpdateTimer != NULL) {
-        xTimerStart(jsonUpdateTimer, 0);
-        Serial.println("JSON update timer started");
-    } else {
-        Serial.println("Error creating JSON update timer!");
-    }
-
+    
+    // Initial update
     updateJSON();
-    if(jsonString != "") {
-      parseJSON(jsonString);
+    if (jsonString != "") {
+        parseJSON(jsonString);
     } else {
-      tft.fillScreen(TFT_BLACK);
-      tft.setTextSize(2);
-      tft.setCursor(10,10);
-      tft.println("No data received...");
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextSize(2);
+        tft.setCursor(10, 10);
+        tft.println("No data received...");
     }
 }
 
 void loop() {
     checkResetButton();
     timeClient.update();
-
+    
     unsigned long currentMillis = millis();
+    
+    // Check if it's time to update JSON
+    if (currentMillis - lastJsonUpdate >= JSON_UPDATE_INTERVAL) {
+        lastJsonUpdate = currentMillis;
+        updateJSON();
+    }
+    
+    // Update display
     if (currentMillis - previousMillis >= interval) {
         previousMillis = currentMillis;
-
+        
         if (jsonString != "") {
-            currentTime = timeClient.getEpochTime() + 7200;
+            currentTime = timeClient.getEpochTime() + 7200; // Adding 2 hours offset
             bool foundNextDeparture = false;
             long nextDiff = 0;
-
+            
+            // Debug current time
+            Serial.print("Current time: ");
+            Serial.println(currentTime);
+            
             for (int i = 0; i < NUM_DEPTIMES; i++) {
                 unsigned long depTime = departureTimes[i];
+                // Debug departure time comparison
+                Serial.print("Checking departure time: ");
+                Serial.print(depTime);
+                Serial.print(" Difference: ");
+                Serial.println(depTime - currentTime);
+                
                 if (depTime > currentTime) {
-                    long difference = depTime - currentTime;
-                    nextDiff = difference;
+                    nextDiff = depTime - currentTime;
                     foundNextDeparture = true;
                     break;
                 }
             }
-
+            
             if (foundNextDeparture) {
-                if (previousDifference != nextDiff) {
-                    previousDifference = nextDiff;
-                    displayCountdown(nextDiff);
-                } else {
-                    displayCountdown(nextDiff);
-                }
+                displayCountdown(nextDiff);
                 displayNextDeparture(currentTime);
-            } else if (NUM_DEPTIMES > 0) {
-                // No future departure
-                displayCountdown(-1); 
-                String noMore = "--:--:--";
-                // Center this line as well
-                int textSize = textSizeNext;
-                int charWidth = 6 * textSize;
-                int width = noMore.length() * charWidth;
-                int x = (tft.width() - width) / 2;
-                updateLine(previousNextStr, noMore, x, nextLineY, textSizeNext);
-                previousNextStr = noMore;
             } else {
-                // No departure info
+                // Check if we need to update JSON due to no future departures
+                updateJSON();
                 displayCountdown(-1);
-                String noInfo = "--:--:--";
-                int textSize = textSizeNext;
-                int charWidth = 6 * textSize;
-                int width = noInfo.length() * charWidth;
-                int x = (tft.width() - width) / 2;
-                updateLine(previousNextStr, noInfo, x, nextLineY, textSizeNext);
-                previousNextStr = noInfo;
+                displayNextDeparture(currentTime);
             }
         }
     }
