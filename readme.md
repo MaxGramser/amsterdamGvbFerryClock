@@ -3,15 +3,14 @@
 This project displays real-time countdowns for GVB ferries (or other public transport lines) on a LilyGO LILY Pi ESP32 device with a TFT display. It fetches data from OVAPI, which provides live departure times of public transportation in the Netherlands, and shows a countdown until the next departure. Additionally, you can configure a specific line code for ferries or other GVB lines.
 
 ## Features
-- Real-time countdown to next departure for a chosen GVB line.
+- Real-time countdown to next departure for a chosen Dutch public transport line.
 - Configurable line code through a WiFiManager portal.
-- Minimalistic, Apple-inspired UI with a black background and white text.
-- Automatic updates every minute.
+- Minimalistic UI with a black background and white text.
+- Automatic updates every minute via API
 
 ## Requirements
 - **Hardware:**
     - LilyGO LILY Pi ESP32 board
-    - Compatible TFT display
 - **Software:**
     - Arduino IDE (tested on version 1.8.x or later)
     - ESP32 Board Support for Arduino IDE
