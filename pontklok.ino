@@ -70,14 +70,57 @@ void saveConfigCallback() {
 
 void configModeCallback(WiFiManager *myWiFiManager) {
     tft.fillScreen(TFT_BLACK);
+
+    // Draw Standard WiFi Icon
+    int centerX = tft.width() / 2;
+    int centerY = 60; // Position of the WiFi icon
+    int arcRadius1 = 25; // Outer arc
+    int arcRadius2 = 15; // Inner arc
+    int dotRadius = 5;   // Dot size
+
+    // Draw the arcs
+    tft.drawArc(centerX, centerY, arcRadius1, 0, 180, 360, TFT_WHITE, TFT_BLACK, true); // Outer arc
+    tft.drawArc(centerX, centerY, arcRadius2, 0, 180, 360, TFT_WHITE, TFT_BLACK, true); // Inner arc
+
+    // Draw the dot
+    tft.fillCircle(centerX, centerY + arcRadius1 + 10, dotRadius, TFT_WHITE);
+
+    // Display Header Text
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextSize(2);
-    tft.setCursor(10, 10);
-    tft.println("WiFi Configuration Mode");
-    tft.setCursor(10, 40);
-    tft.println("Connect to 'PontKlok-Config'");
-    tft.setCursor(10, 70);
-    tft.println("Then visit 192.168.4.1");
+    tft.setTextSize(3); // Larger header
+    String header = "WiFi Setup";
+    int headerWidth = header.length() * 6 * 3; // Approx width of text
+    int headerX = (tft.width() - headerWidth) / 2;
+    int headerY = centerY + 50;
+    tft.setCursor(headerX, headerY);
+    tft.println(header);
+
+    // Display Instructions
+    tft.setTextSize(2); // Slightly larger instructions
+    String line1 = "Connect to wifi:";
+    String line2 = "'PontKlok-Config'";
+    String line3 = "Then go to:";
+    String line4 = "192.168.4.1";
+
+    int textWidth = line1.length() * 6 * 2; // Approx width of text
+    int x = (tft.width() - textWidth) / 2;
+    tft.setCursor(x, headerY + 40);
+    tft.println(line1);
+
+    textWidth = line2.length() * 6 * 2;
+    x = (tft.width() - textWidth) / 2;
+    tft.setCursor(x, headerY + 70);
+    tft.println(line2);
+
+    textWidth = line3.length() * 6 * 2;
+    x = (tft.width() - textWidth) / 2;
+    tft.setCursor(x, headerY + 110);
+    tft.println(line3);
+
+    textWidth = line4.length() * 6 * 2;
+    x = (tft.width() - textWidth) / 2;
+    tft.setCursor(x, headerY + 140);
+    tft.println(line4);
 }
 
 void displayResetMessage(bool show) {
@@ -335,7 +378,7 @@ void setup() {
     tft.init();
     tft.setRotation(3);
     tft.fillScreen(TFT_BLACK);
-    dimScreen();
+    setBrightness(100);
 
     if (!SPIFFS.begin(true)) {
         Serial.println("SPIFFS Mount Failed");
